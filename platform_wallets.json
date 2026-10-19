@@ -1,0 +1,235 @@
+{
+  "_note": "Known platform / relayer / program / exchange / bridge addresses. type: platform|relayer|program|exchange|bridge. 'platform', 'relayer' and 'program' entries are never reported as a creator. Exchange/bridge labels are best-effort public labels (Solscan/Arkham-style tags); verify on an explorer before relying on them. Add entries freely. 'launchpad-config' entries are Meteora DBC config accounts used to recognise the launchpad (observed on anoncoin.it mints in pairs.txt).",
+  "solana": {
+    "BVP3Um6aomdUkH1cRrVTHUJNCPbHrzYsyEwpHyHV5dn7": {
+      "label": "anoncoin.it fee payer (2025)",
+      "type": "platform"
+    },
+    "7AbRGzM3NBvvUXi7j1Mga2SraTfjpPBMzGpyHcXSzV3v": {
+      "label": "anoncoin.it fee payer (2026)",
+      "type": "platform"
+    },
+    "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN": {
+      "label": "Meteora Dynamic Bonding Curve program",
+      "type": "program"
+    },
+    "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P": {
+      "label": "pump.fun bonding curve program",
+      "type": "program"
+    },
+    "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM": {
+      "label": "pump.fun mint authority",
+      "type": "platform"
+    },
+    "CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM": {
+      "label": "pump.fun fee recipient",
+      "type": "platform"
+    },
+    "39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg": {
+      "label": "pump.fun migration wallet",
+      "type": "platform"
+    },
+    "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA": {
+      "label": "PumpSwap AMM program",
+      "type": "program"
+    },
+    "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj": {
+      "label": "Raydium LaunchLab (letsbonk) program",
+      "type": "program"
+    },
+    "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1": {
+      "label": "Raydium AMM authority",
+      "type": "program"
+    },
+    "11111111111111111111111111111111": {
+      "label": "System program",
+      "type": "program"
+    },
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA": {
+      "label": "SPL Token program",
+      "type": "program"
+    },
+    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb": {
+      "label": "SPL Token-2022 program",
+      "type": "program"
+    },
+    "ComputeBudget111111111111111111111111111111": {
+      "label": "Compute Budget program",
+      "type": "program"
+    },
+    "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s": {
+      "label": "Metaplex Token Metadata program",
+      "type": "program"
+    },
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL": {
+      "label": "Associated Token program",
+      "type": "program"
+    },
+    "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9": {
+      "label": "Binance hot wallet",
+      "type": "exchange"
+    },
+    "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM": {
+      "label": "Binance hot wallet",
+      "type": "exchange"
+    },
+    "2ojv9BAiHUrvsm9gxDe7fJSzbNZSJcxZvf8dqmWGHG8S": {
+      "label": "Binance hot wallet",
+      "type": "exchange"
+    },
+    "H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS": {
+      "label": "Coinbase hot wallet",
+      "type": "exchange"
+    },
+    "2AQdpHJ2JpcEgPiATUXjQxA8QmafFegfQwSLWSprPicm": {
+      "label": "Coinbase hot wallet",
+      "type": "exchange"
+    },
+    "GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE": {
+      "label": "Coinbase hot wallet",
+      "type": "exchange"
+    },
+    "5VCwKtCXgCJ6kit5FybXjvriW3xELsFDhYrPSqtJNmcD": {
+      "label": "OKX hot wallet",
+      "type": "exchange"
+    },
+    "AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2": {
+      "label": "Bybit hot wallet",
+      "type": "exchange"
+    },
+    "FWznbcNXWQuHTawe9RxvQ2LdCENssh12dsznf4RiouN5": {
+      "label": "Kraken hot wallet",
+      "type": "exchange"
+    },
+    "BmFdpraQhkiDQE6SnfG5omcA1VwzqfXrwtNYBwWTymy6": {
+      "label": "KuCoin hot wallet",
+      "type": "exchange"
+    },
+    "u6PJ8DtQuPFnfmwHbGFULQ4u4EgjDiyYKjVEsynXq2w": {
+      "label": "Gate.io hot wallet",
+      "type": "exchange"
+    },
+    "ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ": {
+      "label": "MEXC hot wallet",
+      "type": "exchange"
+    },
+    "A77HErqtfN1hLLpvZ9pCtu66FEtM8BveoaKbbMoZ4RiR": {
+      "label": "Bitget hot wallet",
+      "type": "exchange"
+    },
+    "88xTWZMeKfiTgbfEmPLdsUCQcZinwUfk25EBQZ21XMAZ": {
+      "label": "HTX hot wallet",
+      "type": "exchange"
+    },
+    "wormDTUJ6AWPNvk59vGQbDvGJmqbDTdgWgAqcLBCgUb": {
+      "label": "Wormhole token bridge program",
+      "type": "bridge"
+    },
+    "src5qyZHqTqecJV4aY6Cb6zDZLMDzrDKKezs22MPHr4": {
+      "label": "deBridge DLN source program",
+      "type": "bridge"
+    },
+    "dst5MGcFPoBeREFAA5E3tU5ij8m5uVYwkzkSAbsLbNo": {
+      "label": "deBridge DLN destination program",
+      "type": "bridge"
+    },
+    "GybkUNYVNk1FZMt9myAfvpSVgoKBgaueMTvszwBN4qYx": {
+      "label": "anoncoin.it Meteora DBC pool config",
+      "type": "launchpad-config"
+    },
+    "8MEtrexHRv8on2wECEsTsBwK42X1sdeVnzdavY54VgQK": {
+      "label": "anoncoin.it Meteora DBC pool config",
+      "type": "launchpad-config"
+    },
+    "FGjhZNK7GC6NQyLAE8JS22piSEZorTy8wiAehWyW4V4K": {
+      "label": "anoncoin.it Meteora DBC pool config",
+      "type": "launchpad-config"
+    },
+    "AR31BcWNDVPBngGbgMjiFDfAGVcRBGUjU5fkbCtYHr7b": {
+      "label": "anoncoin.it Meteora DBC pool config",
+      "type": "launchpad-config"
+    }
+  },
+  "robinhood": {
+    "0x0312f70169d6919a6e54c0c9b67ea554986e4980": {
+      "label": "anoncoin ERC-4337 bundler/relayer",
+      "type": "relayer"
+    },
+    "0x0000000071727de22e5e9d8baf0edac6f37da032": {
+      "label": "ERC-4337 EntryPoint v0.7",
+      "type": "program"
+    },
+    "0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862": {
+      "label": "Doppler Airlock",
+      "type": "program"
+    },
+    "0x1b37d3a72082029c44b35b604ea473617580b69a": {
+      "label": "Doppler token factory",
+      "type": "program"
+    },
+    "0x3be8b97fd0e713b5abe0649fa830223b6b4bc599": {
+      "label": "DopplerERC20V1 implementation",
+      "type": "program"
+    },
+    "0x5f9eb5f6726fe88d5e39867967f5b833d2fa3215": {
+      "label": "anoncoin/Doppler fee contract (sends creator-fee SPCX payouts)",
+      "type": "platform"
+    },
+    "0x4e3468951d49f2eea976ed0d6e75ffcb44a9a544": {
+      "label": "Doppler initializer/hook",
+      "type": "program"
+    },
+    "0x8366a39cc670b4001a1121b8f6a443a643e40951": {
+      "label": "Uniswap v4-style pool manager",
+      "type": "program"
+    },
+    "0x0000000000000000000000000000000000000000": {
+      "label": "zero address",
+      "type": "program"
+    },
+    "0x3412f1a0477af054a01ac44aec8a6a300c14bbf5": {
+      "label": "anoncoin.it Robinhood migration operator (tx sender for Doppler launches; creator is the fee-split creator beneficiary)",
+      "type": "relayer"
+    },
+    "0x08d0973f2967709e97fb477f5904e2e3652b2077": {
+      "label": "ERC-4337 bundler seen sending anoncoin Doppler launches (handleOps); creator is the userOp sender / fee-split beneficiary",
+      "type": "relayer"
+    },
+    "0xd8a823e4e416df7a8bfa412ae06f5d5639a1db4d": {
+      "label": "anoncoin/Doppler fee-split platform share (~42.98%; on almost every split, never the creator)",
+      "type": "platform"
+    },
+    "0xf52b350de41ac7fbf3412f34683dc2e8f1153207": {
+      "label": "anoncoin/Doppler fee-split protocol share (~14.05%; never the creator)",
+      "type": "platform"
+    },
+    "0x5512144047c2d55297c8470b93e8da87864617cd": {
+      "label": "ERC-4337 bundler seen sending anoncoin Doppler launches (handleOps to EntryPoint v0.7; verified 2026-10-16); creator is the userOp sender / fee-split creator beneficiary",
+      "type": "relayer"
+    },
+    "0x8e3435ad7c1183bc0e34f9ec34ea3423182e1c67": {
+      "label": "ERC-4337 bundler seen sending anoncoin Doppler launches (handleOps to EntryPoint v0.7; verified 2026-10-16); creator is the userOp sender / fee-split creator beneficiary",
+      "type": "relayer"
+    },
+    "0x13c2e85715d8f6fcd48518eccd74ee1dc272ecb8": {
+      "label": "ERC-4337 bundler seen sending anoncoin Doppler launches (handleOps to EntryPoint v0.7; verified 2026-10-16); creator is the userOp sender / fee-split creator beneficiary",
+      "type": "relayer"
+    },
+    "0x9c93024e1dc88d7557075cba3f408c3a8a83e675": {
+      "label": "ERC-4337 bundler seen sending anoncoin Doppler launches (handleOps to EntryPoint v0.7; verified 2026-10-16); creator is the userOp sender / fee-split creator beneficiary",
+      "type": "relayer"
+    },
+    "0x4a449c256d6e20ebe79e595db5a4f63824a9bf5f": {
+      "label": "ERC-4337 bundler seen sending anoncoin Doppler launches (handleOps to EntryPoint v0.7; verified 2026-10-16); creator is the userOp sender / fee-split creator beneficiary",
+      "type": "relayer"
+    },
+    "0xf22e13f4fecf19c17cd142b58a3ed3fbfc361ff5": {
+      "label": "ERC-4337 bundler seen sending anoncoin Doppler launches (handleOps to EntryPoint v0.7; verified 2026-10-16); creator is the userOp sender / fee-split creator beneficiary",
+      "type": "relayer"
+    },
+    "0x85875e3cbde7ead57a9b206db3b71ed2efc4ab91": {
+      "label": "ERC-4337 bundler seen sending anoncoin Doppler launches (handleOps to EntryPoint v0.7; verified 2026-10-16); creator is the userOp sender / fee-split creator beneficiary",
+      "type": "relayer"
+    }
+  }
+}
