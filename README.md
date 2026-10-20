@@ -41,10 +41,10 @@ Results identify wallets, not people.
 ## Pinned release and integrity
 Bots should download from the tag, not from `main`, and check the SHA-256 of each file (listed in `SHA256SUMS`):
 ```bash
-B=https://raw.githubusercontent.com/AnonXplorer/anon-creator-tracer/v1.0.0
+B=https://raw.githubusercontent.com/AnonXplorer/anon-creator-tracer/v1.0.1
 curl -fsSLO $B/tracer.py && curl -fsSLO $B/platform_wallets.json && curl -fsSL $B/SHA256SUMS | sha256sum -c
 ```
 Any change to `tracer.py` or `platform_wallets.json` needs a new tag and new hashes.
 
 ## License
-GNU General Public License v3.0 (GPL-3.0). See `LICENSE`. Release v1.0.0 was published under MIT.
+GNU General Public License v3.0 (GPL-3.0) from v1.0.1. See `LICENSE`. Release v1.0.0 was published under MIT.
