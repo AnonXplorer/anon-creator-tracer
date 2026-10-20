@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Anon Creator Tracker: on-chain creator trace for anoncoin.it tokens (Solana Meteora DBC / Robinhood Chain Doppler).
+"""Anon Creator Tracer: on-chain creator trace for anoncoin.it tokens (Solana Meteora DBC / Robinhood Chain Doppler).
 python3 tracer.py <addr>... [--deep --all-claims] [--md-dir DIR] [--img DIR] [--json] [--no-funding] [--workdir DIR]
 Stdlib only. Caches live in the work dir (default: this file's folder). Times are UTC."""
 import argparse, base64, concurrent.futures as cf, datetime as dt, fcntl, gzip, hashlib, json, os, re, sys, tempfile, threading, time
