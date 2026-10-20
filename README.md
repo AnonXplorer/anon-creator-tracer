@@ -1,4 +1,4 @@
-# Anon Creator Tracker
+# Anon Creator Tracer
 
 Finds who created an anoncoin.it token (Solana or Robinhood Chain) at the wallet level, plus every other token that
 creator account launched. It uses public data only: anoncoin's public API, the Solana and Robinhood public RPCs,
@@ -41,7 +41,7 @@ Results identify wallets, not people.
 ## Pinned release and integrity
 Bots should download from the tag, not from `main`, and check the SHA-256 of each file (listed in `SHA256SUMS`):
 ```bash
-B=https://raw.githubusercontent.com/AnonXplorer/anon-creator-tracker/v1.0.0
+B=https://raw.githubusercontent.com/AnonXplorer/anon-creator-tracer/v1.0.0
 curl -fsSLO $B/tracer.py && curl -fsSLO $B/platform_wallets.json && curl -fsSL $B/SHA256SUMS | sha256sum -c
 ```
 Any change to `tracer.py` or `platform_wallets.json` needs a new tag and new hashes.
