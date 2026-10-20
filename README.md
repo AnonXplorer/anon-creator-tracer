@@ -47,4 +47,4 @@ curl -fsSLO $B/tracer.py && curl -fsSLO $B/platform_wallets.json && curl -fsSL $
 Any change to `tracer.py` or `platform_wallets.json` needs a new tag and new hashes.
 
 ## License
-MIT. See `LICENSE`.
+GNU General Public License v3.0 (GPL-3.0). See `LICENSE`. Release v1.0.0 was published under MIT.
