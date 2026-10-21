@@ -21,6 +21,8 @@ AIRLOCK = "0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862"
 T_CREATE = "0x68ff1cfc"
 T_USEROP = "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f"
 T_BEFORE = "0xbb47ee3e183a558b1a2ff0874b079f3fc5478b7454eacf2bfc5af2ff5878f972"
+HOOK = "0x4e3468951d49f2eea976ed0d6e75ffcb44a9a544"   # Doppler initializer/hook; the public updateBeneficiary events so far come from here
+UB_SIG, UB_SEL = "UpdateBeneficiary(bytes32,address,address)", "0xd44f6738"   # updateBeneficiary(bytes32 poolId, address newBeneficiary)
 EVM = re.compile(r"^0x[0-9a-fA-F]{40}$")
 THRESH = 3  # auto-learn: a wallet seen across launches of >= 3 distinct creator accounts is platform infrastructure
 # built-in platform list (chain|address|type|label); 'exchange'/'bridge' only label funding sources
@@ -98,6 +100,35 @@ def load_platform(path):
     EXCL_SOL.update(PLAT["solana"]); EXCL_EVM.update(PLAT["robinhood"], {OPERATOR})
     return bool(d)
 LEARNED = {"solana": {}, "robinhood": {}}
+
+
+def keccak256(b):
+    """Ethereum Keccak-256 (original padding, not NIST SHA3); stdlib has no keccak."""
+    R = [1, 0x8082, 0x800000000000808a, 0x8000000080008000, 0x808b, 0x80000001, 0x8000000080008081, 0x8000000000008009, 0x8a, 0x88,
+         0x80008009, 0x8000000a, 0x8000808b, 0x800000000000008b, 0x8000000000008089, 0x8000000000008003, 0x8000000000008002,
+         0x8000000000000080, 0x800a, 0x800000008000000a, 0x8000000080008081, 0x8000000000008080, 0x80000001, 0x8000000080008008]
+    ROT = [[0, 36, 3, 41, 18], [1, 44, 10, 45, 2], [62, 6, 43, 15, 61], [28, 55, 25, 21, 56], [27, 20, 39, 8, 14]]
+    M = (1 << 64) - 1; rl = lambda v, n: ((v << n) | (v >> (64 - n))) & M if n else v
+    st = [[0] * 5 for _ in range(5)]; rate = 136
+    b = bytearray(b) + b"\x01"; b += b"\0" * (-len(b) % rate); b[-1] |= 0x80
+    for o in range(0, len(b), rate):
+        for i in range(rate // 8):
+            st[i % 5][i // 5] ^= int.from_bytes(b[o + 8 * i:o + 8 * i + 8], "little")
+        for rc in R:
+            c = [st[x][0] ^ st[x][1] ^ st[x][2] ^ st[x][3] ^ st[x][4] for x in range(5)]
+            d = [c[(x - 1) % 5] ^ rl(c[(x + 1) % 5], 1) for x in range(5)]
+            st = [[st[x][y] ^ d[x] for y in range(5)] for x in range(5)]
+            bb = [[0] * 5 for _ in range(5)]
+            for x in range(5):
+                for y in range(5):
+                    bb[y][(2 * x + 3 * y) % 5] = rl(st[x][y], ROT[x][y])
+            st = [[bb[x][y] ^ (~bb[(x + 1) % 5][y] & bb[(x + 2) % 5][y]) for y in range(5)] for x in range(5)]
+            st[0][0] ^= rc
+    return b"".join(st[i % 5][i // 5].to_bytes(8, "little") for i in range(4))
+
+
+T_UB = "0x" + keccak256(UB_SIG.encode()).hex()
+assert T_UB.startswith("0x1cf54f5b") and keccak256(b"updateBeneficiary(bytes32,address)")[:4].hex() == UB_SEL[2:]
 W = None
 PL = threading.Lock()
 STATS = {}
@@ -363,6 +394,7 @@ class Cache:
         for k in ("tx_token", "block_ts", "dex", "ath"):
             s.d.setdefault(k, {})
         s.d.setdefault("fee_split", {"to_block": -1, "logs": []})
+        s.d.setdefault("beneficiary", {"to_block": -1, "logs": []})
 
     def save(s):
         with s.lk, FLock(wpath(".cache.lock")):
@@ -381,6 +413,8 @@ class Cache:
             d["ath"] = da
             if (disk.get("fee_split") or {}).get("to_block", -1) > d["fee_split"]["to_block"]:
                 d["fee_split"] = disk["fee_split"]
+            if (disk.get("beneficiary") or {}).get("to_block", -1) > d["beneficiary"]["to_block"]:
+                d["beneficiary"] = disk["beneficiary"]
             awrite(wpath("cache.json"), json.dumps(d, separators=(",", ":")))
 
 
@@ -903,6 +937,78 @@ class FeeSplits:
 FS = FeeSplits()
 
 
+def ub_parse(l):
+    """UpdateBeneficiary(bytes32 poolId, address oldBeneficiary, address newBeneficiary) log -> compact row.
+    Observed on-chain with all three args in data (none indexed); indexed variants are decoded from topics too."""
+    ws = [l["data"][2 + 64 * i:66 + 64 * i] for i in range((len(l["data"]) - 2) // 64)]
+    vals = [t[2:] for t in l["topics"][1:]] + ws
+    if len(vals) < 3:
+        return None
+    return [l["transactionHash"], int(l["blockNumber"], 16), int(l.get("logIndex") or "0x0", 16), l["address"].lower(),
+            "0x" + vals[0], "0x" + vals[1][-40:].lower(), "0x" + vals[2][-40:].lower()]
+
+
+class Beneficiaries:
+    """updateBeneficiary(bytes32,address) events (UpdateBeneficiary topic T_UB) of the fee contract and the Doppler hook,
+    whole chain, cached incrementally in cache.json['beneficiary']; filtered per poolId (poolId is not an indexed topic)."""
+    ADDRS = (FEE_C, HOOK)
+
+    def __init__(s):
+        s.lk = threading.Lock(); s.synced = False; s.secs = None
+
+    def sync(s):
+        with s.lk:
+            if s.synced:
+                return
+            t0 = time.time(); bf = C.d["beneficiary"]; head = int(rh("eth_blockNumber", []), 16)
+            rg = [(a, lo, min(lo + 9_999_999, head)) for a in s.ADDRS for lo in range(bf["to_block"] + 1, head + 1, 10_000_000)]
+
+            def get(r):
+                a, lo, hi = r
+                try:
+                    return rh("eth_getLogs", [{"address": a, "topics": [T_UB], "fromBlock": hex(lo), "toBlock": hex(hi)}])
+                except Exception:
+                    if hi - lo < 50_000:
+                        raise
+                    m = (lo + hi) // 2
+                    return get((a, lo, m)) + get((a, m + 1, hi))
+            new = []
+            with cf.ThreadPoolExecutor(6) as ex:
+                for lg in ex.map(get, rg):
+                    for l in lg:
+                        try:
+                            x = ub_parse(l)
+                            if x:
+                                new.append(x)
+                        except Exception:
+                            pass
+            with C.lk:
+                seen = {(x[0], x[2]) for x in bf["logs"]}; bf["logs"] += [x for x in new if (x[0], x[2]) not in seen]; bf["to_block"] = head
+            s.synced = True; s.secs = round(time.time() - t0, 1)
+
+    def of_pool(s, pid):
+        s.sync(); pid = pid.lower()
+        with C.lk:
+            return sorted((x for x in C.d["beneficiary"]["logs"] if x[4].lower() == pid), key=lambda x: (x[1], x[2]))
+
+
+UB = Beneficiaries()
+
+
+def pool_id(rc):
+    """poolId of a launch = topic1 of its fee-split event (the same id the pool manager's Initialize and the fee contract use)."""
+    return next((l["topics"][1] for l in rc["logs"] if l["address"].lower() == FEE_C and l["topics"][0] == FEE_T and len(l["topics"]) > 1), None)
+
+
+def handoff(logs, launch):
+    """Follow the launch creator's fee share through UpdateBeneficiary events: [(log, from, to)...] (empty = never moved)."""
+    cur, out = (launch or "").lower(), []
+    for x in logs:
+        if cur and x[5] == cur and x[6] != cur:
+            out.append(x); cur = x[6]
+    return out
+
+
 # ---------------------------------------------------------------- per coin + portfolio
 def coin_onchain(r, wallets):
     notes, flags = [], []; h = r.get("txHash"); sy = r["symbol"]
@@ -923,7 +1029,16 @@ def coin_onchain(r, wallets):
             if fb:
                 flags.append(f"{sy}: fee-split creator {c} is an auto-detected platform wallet")
             if c and r.get("creatorAddress") and c != r["creatorAddress"].lower():
-                flags.append(f"{sy}: record creatorAddress {r['creatorAddress']} != on-chain fee-split creator {c}")
+                pid, mv = pool_id(rc), []
+                try:
+                    mv = handoff(UB.of_pool(pid), c) if pid else []
+                except Exception as e:
+                    notes.append(f"{sy}: UpdateBeneficiary check failed ({str(e)[:80]})")
+                if mv and mv[-1][6] == r["creatorAddress"].lower():
+                    r["creationCreator"], r["creatorAddressOnchain"] = c, mv[-1][6]
+                    notes.append(f"{sy} {r['address']}: launch fee-split creator {c} moved its fee share to {mv[-1][6]} via updateBeneficiary (tx {mv[-1][0]}) (ON-CHAIN)")
+                else:
+                    flags.append(f"{sy}: record creatorAddress {r['creatorAddress']} != on-chain fee-split creator {c}")
             if tok and tok != r["address"].lower():
                 flags.append(f"{sy}: launch tx {h} created {tok}, not {r['address']}")
         else:
@@ -1217,6 +1332,7 @@ def find_transfers(pool, old, cur):
 class Tracer:
     def __init__(s, a, recs):
         s.a, s.recs, s.ex = a, recs, cf.ThreadPoolExecutor(12); s.pf = Portfolios(recs, s.ex)
+        s.ox = cf.ThreadPoolExecutor(3)   # original-launcher traces (only after a creator transfer); own pool so they never starve s.ex
 
     def sol_creator(s, addr, rec, fpool, res):
         pools = fpool.result(); cr = {}
@@ -1283,7 +1399,37 @@ class Tracer:
             res["flags"].append(f"record creatorAddress {rec['creatorAddress']} != fee-split creator {c}")
         if rec and not rec.get("creatorAddress"):
             res["notes"].append("record has no creatorAddress; creator taken from the launch tx's fee split")
+        s.rh_handoff(rc, cr, res)
         return cr
+
+    def rh_handoff(s, rc, cr, res):
+        """poolId = topic1 of the launch's fee-split event (same id as the pool manager's Initialize); then follow the launch
+        creator's share through updateBeneficiary (UpdateBeneficiary events, cached in cache.json)."""
+        pid = pool_id(rc); cr["pool_id"] = pid; cr["beneficiary_updates"] = []
+        if not pid:
+            return
+        try:
+            logs = UB.of_pool(pid)
+        except Exception as e:
+            res["notes"].append(f"UpdateBeneficiary scan failed: {str(e)[:120]}"); return
+        mv = handoff(logs, cr.get("creator"))
+        cr["beneficiary_updates"] = [{"tx": x[0], "block": x[1], "contract": x[3], "from": x[5], "to": x[6], "time": et(ts=block_ts(x[1]))} for x in mv]
+        other = [x for x in logs if x not in mv]
+        if other:
+            res["notes"].append(f"{len(other)} UpdateBeneficiary event(s) for pool {pid} did not move the launch creator's share: "
+                                + "; ".join(f"{x[5]} -> {x[6]} (tx {x[0]})" for x in other[:5]))
+        if mv:
+            c, cur = cr["creator"], mv[-1][6]
+            cr.update(launch_creator=c, creation_creator=c, creator=cur, transferred=True, creator_evidence_launch=cr.get("evidence"),
+                      evidence=f"ON-CHAIN: launch fee-split creator {c}, fee share moved by updateBeneficiary to {cur} (tx {mv[-1][0]})")
+            ra = ((res.get("record") or {}).get("creatorAddress") or "").lower(); mm = f"record creatorAddress {(res.get('record') or {}).get('creatorAddress')} != fee-split creator {c}"
+            if ra == cur and mm in res["flags"]:
+                res["flags"].remove(mm); res["notes"].append(f"record creatorAddress = current beneficiary {cur} (after updateBeneficiary), launch fee-split creator {c}")
+            res["flags"].append(f"creator role TRANSFERRED: launch fee-split creator {c} (tx {cr['launch_tx']}) moved its fee share to {cur} "
+                                f"via updateBeneficiary ({len(mv)} tx, last {mv[-1][0]})")
+            if cur in EXCL_EVM or cur in LEARNED["robinhood"]:
+                cr["platform_creator"] = True
+                res["flags"].append(f"PLATFORM CREATOR: current beneficiary {cur} is a known or auto-detected platform wallet")
 
     def quick(s, addr):
         t0 = time.time(); a = s.a
@@ -1295,6 +1441,8 @@ class Tracer:
         frec = s.ex.submit(s.recs.lookup, addr)
         fpool = s.ex.submit(pool_of_mint, addr) if res["chain"] == "solana" else None
         s.ex.submit(FS.sync)
+        if res["chain"] == "robinhood":
+            s.ex.submit(UB.sync)
         rec = frec.result(); res["timings"]["record"] = round(time.time() - t0, 1)
         if not rec:
             res["notes"].append("no anoncoin record via the public single-coin lookup (not an anoncoin coin?)")
@@ -1304,31 +1452,19 @@ class Tracer:
         cr = res["creator"] = s.sol_creator(addr, rec, fpool, res) if res["chain"] == "solana" else s.rh_creator(addr, rec, res)
         res["timings"]["creator"] = round(time.time() - t0, 1)
         ff = s.ex.submit(sol_funding if res["chain"] == "solana" else rh_funding, cr["creator"]) if cr.get("creator") and not a.no_funding else None
+        fog = s.ox.submit(s.orig_creator, res, cr) if cr.get("transferred") and cr.get("creation_creator") else None
         if rec and rec.get("userId"):
-            pf = s.pf.get(rec["userId"]); coins = list(pf["coins"].values())
-            wallets = {r["walletAddress"] for r in coins if r.get("walletAddress")}
-            fl = [s.ex.submit(s.recs.lookup, r["address"]) for r in coins]
-            fo = [s.ex.submit(coin_onchain, r, wallets) for r in coins if r["chain"] == "solana" or not r.get("blockTime")]
-            notes, flags = list(pf["notes"]), list(pf["flags"])
-            for f in fo:
-                n, x = f.result(); notes += n; flags += x
-            fresh = {r["address"].lower(): r for r in (f.result() for f in fl) if r}; out = []
-            for r in coins:
-                c = dict(r); fr = fresh.get(r["address"].lower())
-                if fr:
-                    for k in ("ctoWallet", "ctoIsDefaultCreator", "ctoUpdatedOn", "ctoElectionId", "ctoWinnerFeeSol", "isMigrated", "prevUserId", "sourceMint",
-                              "migrationRole", "destination", "royaltySharesPresent", "ctoElectionActive", "mcapError", "image"):
-                        c[k] = fr.get(k, c.get(k))
-                    c.update({k: v for k, v in fr.items() if k.startswith(("mcap", "ath"))})
-                else:
-                    c["mcapError"] = "single-coin lookup failed"
-                ath_merge(c)
-                if c["chain"] == "solana" and (c.get("destination") or c.get("migrationRole")) and not c.get("foundVia"):
-                    c["foundVia"] = "robinhoodMigration source (migration-campaign coins are left out of the public feed)"
-                c["explorer"] = f"{BS}/token/{c['address'].lower()}" if c["chain"] == "robinhood" else f"https://solscan.io/token/{c['address']}"
-                c["onchainEvidence"] = pf["confirmed"].get(r["address"].lower()); out.append(c)
-            notes += dexscreener(out)
-            res["portfolio"] = {"coins": out, "notes": list(dict.fromkeys(notes)), "flags": list(dict.fromkeys(flags)), "build_secs": pf["secs"]}
+            res["portfolio"] = s.portfolio(rec["userId"])
+            for c in res["portfolio"]["coins"] if cr.get("beneficiary_updates") else []:
+                if c["address"].lower() == addr.lower() and not c.get("onchainEvidence"):
+                    c["onchainEvidence"] = cr["evidence"]   # launch fee split names the original launcher; the handoff tx links the current creator
+        res["original_creator"] = None
+        if fog:
+            try:
+                res["original_creator"] = fog.result()
+            except Exception as e:
+                res["original_creator"] = {"wallet": cr.get("creation_creator"), "chain": res["chain"], "accounts": [],
+                                           "skipped": f"original launcher trace failed: {type(e).__name__}: {str(e)[:120]}"}
         if ff:
             try:
                 res["funding"] = ff.result()
@@ -1348,6 +1484,73 @@ class Tracer:
             tg.append("--deep")
         res["deep_triggers"] = tg; res["timings"]["quick_total"] = round(time.time() - t0, 1)
         return res
+
+    def portfolio(s, uid):
+        """Token list of one anoncoin account (shared by the current account and the original launcher account(s))."""
+        pf = s.pf.get(uid); coins = list(pf["coins"].values())
+        wallets = {r["walletAddress"] for r in coins if r.get("walletAddress")}
+        fl = [s.ex.submit(s.recs.lookup, r["address"]) for r in coins]
+        fo = [s.ex.submit(coin_onchain, r, wallets) for r in coins if r["chain"] == "solana" or not r.get("blockTime")]
+        notes, flags = list(pf["notes"]), list(pf["flags"])
+        for f in fo:
+            n, x = f.result(); notes += n; flags += x
+        fresh = {r["address"].lower(): r for r in (f.result() for f in fl) if r}; out = []
+        for r in coins:
+            c = dict(r); fr = fresh.get(r["address"].lower())
+            if fr:
+                for k in ("ctoWallet", "ctoIsDefaultCreator", "ctoUpdatedOn", "ctoElectionId", "ctoWinnerFeeSol", "isMigrated", "prevUserId", "sourceMint",
+                          "migrationRole", "destination", "royaltySharesPresent", "ctoElectionActive", "mcapError", "image"):
+                    c[k] = fr.get(k, c.get(k))
+                c.update({k: v for k, v in fr.items() if k.startswith(("mcap", "ath"))})
+            else:
+                c["mcapError"] = "single-coin lookup failed"
+            ath_merge(c)
+            if c["chain"] == "solana" and (c.get("destination") or c.get("migrationRole")) and not c.get("foundVia"):
+                c["foundVia"] = "robinhoodMigration source (migration-campaign coins are left out of the public feed)"
+            c["explorer"] = f"{BS}/token/{c['address'].lower()}" if c["chain"] == "robinhood" else f"https://solscan.io/token/{c['address']}"
+            c["onchainEvidence"] = pf["confirmed"].get(r["address"].lower()); out.append(c)
+        notes += dexscreener(out)
+        return {"coins": out, "notes": list(dict.fromkeys(notes)), "flags": list(dict.fromkeys(flags)), "build_secs": pf["secs"]}
+
+    def orig_creator(s, res, cr):
+        """Only after a detected creator transfer: anoncoin account(s) of the ORIGINAL launcher wallet (on-chain creation-tx creator),
+        found via (a) cached records naming that wallet and (b) on-chain launches that wallet still controls (Solana: current DBC
+        pool creator; Robinhood: fee-split beneficiary), each confirmed by its public anoncoin record. Never asserts that the
+        original and current accounts are the same person."""
+        t0 = time.time(); ch = res["chain"]; w = cr["creation_creator"]; R = s.recs
+        k = w.lower() if ch == "robinhood" else w; cur = (res.get("record") or {}).get("userId")
+        o = {"wallet": w, "chain": ch, "current_creator": cr.get("creator"), "current_userId": cur, "accounts": [], "skipped": None, "notes": []}
+        if k in PLAT[ch] or k in LEARNED[ch] or k in (EXCL_EVM if ch == "robinhood" else EXCL_SOL):
+            o["skipped"] = "original launcher wallet is a known or auto-detected platform wallet; not traced"; return o
+        via, names = {}, {}
+        with R.lk:
+            rows = list(R.rows.values())
+        for r in rows:
+            ws = ({(r.get("creatorAddress") or "").lower(), (r.get("creatorAddressOnchain") or "").lower()} if ch == "robinhood"
+                  else {r.get("walletAddress"), r.get("devWalletAddress"), r.get("creationCreator")})
+            if k in ws and r.get("userId"):
+                via.setdefault(r["userId"], []).append(f"cached record {r.get('symbol')} {r.get('address')}"); names.setdefault(r["userId"], r.get("userName"))
+        try:
+            if ch == "solana":
+                toks, how = sorted(mints_of_creator(w)), "current Meteora DBC pool creator"
+            else:
+                m = FS.matches({k}); toks, how = [t for t in s.ex.map(FS.token_of, list(m)) if t], "fee-split beneficiary"
+            o["onchain_launches_checked"] = len(toks[:60])
+            if len(toks) > 60:
+                o["notes"].append(f"{len(toks)} on-chain launches by the wallet; only 60 checked against anoncoin records")
+            for a, r in zip(toks[:60], s.ex.map(R.lookup, toks[:60])):
+                if r and r.get("userId"):
+                    via.setdefault(r["userId"], []).append(f"ON-CHAIN: {how} of {r.get('symbol')} {a}, public record userId"); names.setdefault(r["userId"], r.get("userName"))
+        except Exception as e:
+            o["notes"].append(f"on-chain launch scan of the original wallet failed: {str(e)[:120]}")
+        uids = [u for u in via if u != cur]
+        if not uids:
+            o["skipped"] = ("original launcher wallet maps to the current account; no separate original account" if cur in via
+                            else "no anoncoin account found for the original launcher wallet")
+        for u in uids:
+            o["accounts"].append({"userId": u, "userName": names.get(u), "found_via": list(dict.fromkeys(via[u])), "portfolio": s.portfolio(u)})
+        o["secs"] = round(time.time() - t0, 1)
+        return o
 
     def deep(s, res):
         t0 = time.time(); d = {}; rec = s.recs.fresh.get(res["input"].lower()) or {}; cr = res.get("creator") or {}
@@ -1413,15 +1616,30 @@ def tsof(c):
         return 0
 
 
+def orig_coins(res, seen=()):
+    """[(coin, original account name, that account's wallets)] of the original launcher account(s), deduped by address."""
+    seen, out = {a.lower() for a in seen}, []
+    for ac in ((res.get("original_creator") or {}).get("accounts") or []):
+        cs = ac["portfolio"]["coins"]; ws = {c["walletAddress"] for c in cs if c.get("walletAddress")}
+        for c in cs:
+            if c["address"].lower() not in seen:
+                seen.add(c["address"].lower()); out.append((c, ac.get("userName") or ac["userId"], ws))
+    return out
+
+
 def md_table(res):
-    coins = res["portfolio"]["coins"]; ws = {c["walletAddress"] for c in coins if c.get("walletAddress")}; bt = any(c.get("blockTime") for c in coins)
+    coins = res["portfolio"]["coins"]; ws = {c["walletAddress"] for c in coins if c.get("walletAddress")}
+    oc = {id(c): (n, w) for c, n, w in orig_coins(res, [c["address"] for c in coins])}
+    coins = coins + [c for c, _, _ in orig_coins(res, [c["address"] for c in coins])]; bt = any(c.get("blockTime") for c in coins)
     L_ = ["| Token | Chain | Created (UTC) | Mcap now | ATH mcap | Note | Link |", "|---|---|---|---|---|---|---|"]
     for ch, title, link in (("robinhood", "Robinhood Chain", "Blockscout"), ("solana", "Solana", "Solscan")):
         for c in sorted([c for c in coins if c["chain"] == ch], key=tsof):
-            n = []
+            n = []; on, ow = oc.get(id(c), (None, ws))
+            if on:
+                n.append(f"original launcher account {on}")
             if c.get("ctoWallet"):
                 n.append(f"CTO fees → {short(c['ctoWallet'])}")
-            if c.get("creationCreator") and c["creationCreator"] not in ws:
+            if c.get("creationCreator") and c["creationCreator"] not in ow:
                 n.append(f"creator moved from {short(c['creationCreator'])}")
             if c.get("foundVia"):
                 n.append("not in public feed")
@@ -1465,7 +1683,9 @@ def card(res):
         ct.append(f"CTO: creator fees go to CTO winner {rec.get('ctoWallet')} (platform record" + (f", since {et(iso=rec['ctoUpdatedOn'])}" if rec.get("ctoUpdatedOn") else "") + "); creator unchanged")
     d = res.get("deep") or {}; trs = (d.get("transfer") or {}).get("transfers") or []
     ct += [f"creator role transferred {t['from']} -> {t['to']} on {t['time']} (on-chain, tx {t['tx']})" for t in trs]
-    if cr.get("transferred") and not trs:
+    bu = cr.get("beneficiary_updates") or []
+    ct += [f"creator fee share moved {t['from']} -> {t['to']} on {t['time']} (on-chain, updateBeneficiary tx {t['tx']})" for t in bu]
+    if cr.get("transferred") and not trs and not bu:
         ct.append(f"creator role transferred from {cr.get('creation_creator')} to {cr.get('creator')} (on-chain; transfer tx not located)")
     red = sorted({w for pl in (d.get("damm_v2") if isinstance(d.get("damm_v2"), list) else []) if pl.get("migration_pool") for p in pl["positions"]
                   for w, e in (p.get("recipients") or {}).items() if e["class"].startswith(("REDIRECT", "CTO"))})
@@ -1477,17 +1697,34 @@ def card(res):
     ct += [f"other token {c['symbol']}: CTO fees to {c['ctoWallet']} (platform record)" for c in coins if c.get("ctoWallet") and c["address"].lower() != inp]
     item = lambda c: f"{c['name']} (${c['symbol']}), {CH[c['chain']]}"
     now = lambda c: usd(c.get("mcapUsd")) or usd(c.get("dsMcapUsd")) or "n/a"
-    top = sorted([c for c in coins if c.get("mcapAthUsd") is not None], key=lambda c: -c["mcapAthUsd"])[:5]
+    cnt = lambda cs: {"total": len(cs), "solana": sum(c["chain"] == "solana" for c in cs), "robinhood": sum(c["chain"] == "robinhood" for c in cs)}
+    og = res.get("original_creator"); oc = orig_coins(res, [c["address"] for c in coins]); tag = {id(c): n for c, n, _ in oc}
+    allc = coins + [c for c, _, _ in oc]; sfx = lambda c: f" [original launcher {tag[id(c)]}]" if id(c) in tag else ""
+    oaccs = [a.get("userName") or a["userId"] for a in (og or {}).get("accounts") or []]
+    flags = list(dict.fromkeys(flags + [f"original launcher account: {x}" for a in (og or {}).get("accounts") or [] for x in a["portfolio"]["flags"]]))
+    ocard = None
+    if og:
+        och = CH.get(og.get("chain"), og.get("chain")); own = [c for c, _, _ in orig_coins(res)]
+        ocard = {"wallet": og["wallet"], "chain": och, "accounts": oaccs, "note": og.get("skipped"), "current_account": rec.get("userName"),
+                 "created_tokens": cnt(own) if oaccs else None, "per_account": [{"account": a.get("userName") or a["userId"], **cnt(a["portfolio"]["coins"])} for a in og.get("accounts") or []],
+                 "tokens": [f"{item(c)}, {fmt(tsof(c), False) if tsof(c) else '?'}, ATH {usd(c.get('mcapAthUsd')) or 'n/a'}" for c in sorted(own, key=tsof, reverse=True)],
+                 "input_also": None}
+        if oaccs and inp not in {c["address"].lower() for c in own}:
+            ocard["input_also"] = (f"${rec.get('symbol') or me.get('symbol')} was also launched on-chain by this wallet ("
+                                   + ("creation tx creator" if og.get("chain") == "solana" else "launch fee-split creator")
+                                   + f") and is now listed under current creator {rec.get('userName')}")
+    top = sorted([c for c in allc if c.get("mcapAthUsd") is not None], key=lambda c: -c["mcapAthUsd"])[:5]
     return {"name": rec.get("name") or me.get("name"), "symbol": rec.get("symbol") or me.get("symbol"), "blockchain": CH.get(res["chain"]),
             "launched": fmt(bt) if bt else None, "contract": res["input"], "mcap_now": now(me) if me else "n/a",
             "ath": usd(me.get("mcapAthUsd")) or "n/a", "confidence": conf, "confidence_reason": why, "creator_username": rec.get("userName"),
             "robinhood_wallet": ", ".join(map(lab, rh_w)) or None, "solana_wallet": ", ".join(map(lab, sol_w)) or None,
             "funding": fund, "cto_or_transfer": "; ".join(ct) or "none found",
-            "created_tokens": {"total": len(coins), "solana": sum(c["chain"] == "solana" for c in coins), "robinhood": sum(c["chain"] == "robinhood" for c in coins)},
-            "top_aths": [f"{item(c)}, ATH {usd(c['mcapAthUsd'])}, now {now(c)}" for c in top],
-            "latest_launches": [f"{item(c)}, {fmt(tsof(c), False) if tsof(c) else '?'}, now {now(c)}, ATH {usd(c.get('mcapAthUsd')) or 'n/a'}"
-                                for c in sorted(coins, key=tsof, reverse=True)[:5]],
-            "flags": flags, "md_file": res.get("md"), "image": res.get("image_file")}
+            "created_tokens": {**cnt(allc), "current_account": rec.get("userName"), "current": cnt(coins), "original_accounts": oaccs,
+                               "original": cnt([c for c, _, _ in orig_coins(res)]) if oaccs else None},
+            "top_aths": [f"{item(c)}, ATH {usd(c['mcapAthUsd'])}, now {now(c)}{sfx(c)}" for c in top],
+            "latest_launches": [f"{item(c)}, {fmt(tsof(c), False) if tsof(c) else '?'}, now {now(c)}, ATH {usd(c.get('mcapAthUsd')) or 'n/a'}{sfx(c)}"
+                                for c in sorted(allc, key=tsof, reverse=True)[:5]],
+            "flags": flags, "md_file": res.get("md"), "image": res.get("image_file"), "original_creator": ocard}
 
 
 def card_text(c):
@@ -1495,8 +1732,21 @@ def card_text(c):
     L_ = [f"{c['name']} (${c['symbol']})", f"Blockchain: {c['blockchain']}", f"Launched: {c['launched']}", f"Contract: {c['contract']}", "",
           f"Mcap now: {c['mcap_now']}", f"ATH: {c['ath']}", f"Confidence: {c['confidence']} ({c['confidence_reason']})", "",
           f"Creator: {c['creator_username']}", f"Robinhood wallet: {c['robinhood_wallet']}", f"Solana wallet: {c['solana_wallet']}",
-          f"Funding: {c['funding']}", f"CTO or creator transfer: {c['cto_or_transfer']}", "",
-          f"Created tokens: {t['total']} ({t['solana']} on Solana, {t['robinhood']} on Robinhood)", "Top ATHs:"]
+          f"Funding: {c['funding']}", f"CTO or creator transfer: {c['cto_or_transfer']}", ""]
+    o = c.get("original_creator"); n3 = lambda x: f"{x['total']} ({x['solana']} on Solana, {x['robinhood']} on Robinhood)"
+    if o and not o["accounts"]:
+        L_ += [f"Original launcher: {o['wallet']} ({o['chain']}, on-chain creation-tx creator): {o['note']}", ""]
+    elif o:
+        sol_ = o["chain"] == "Solana"
+        L_ += [("Original launcher (on-chain creation-tx creator; the creator role later moved to the current creator, not necessarily the same person):" if sol_ else
+                "Original launcher (on-chain launch fee-split creator; the creator fee share later moved to the current creator, not necessarily the same person):"),
+               f"Original launcher wallet: {o['wallet']} ({o['chain']}, on-chain)", f"Original launcher account: {', '.join(o['accounts'])}",
+               f"Original launcher created tokens: {n3(o['created_tokens'])}"] + [f"- {x}" for x in o["tokens"]] + ([f"- {o['input_also']}"] if o.get("input_also") else []) + [""]
+    if o and o["accounts"]:
+        L_ += [f"Created tokens: {n3(t)} across current account {t['current_account']} and original launcher {', '.join(o['accounts'])}",
+               f"- current account {t['current_account']}: {n3(t['current'])}"] + [f"- original launcher {x['account']}: {n3(x)}" for x in o["per_account"]] + ["Top ATHs:"]
+    else:
+        L_ += [f"Created tokens: {n3(t)}", "Top ATHs:"]
     L_ += [f"{i}. {x}" for i, x in enumerate(c["top_aths"], 1)] + ["Latest launches:"] + [f"{i}. {x}" for i, x in enumerate(c["latest_launches"], 1)]
     return "\n".join(L_ + [f"FLAG: {x}" for x in c["flags"]] + [f"md: {c['md_file']}  image: {c['image']}"])
 
@@ -1577,7 +1827,7 @@ def main():
         except Exception as e:
             res["deep"] = {"error": f"{type(e).__name__}: {e}"}
         res["timings"]["deep"] = res["deep"].get("secs")
-    outer.shutdown(); tr.ex.shutdown(wait=False)
+    outer.shutdown(); tr.ex.shutdown(wait=False); tr.ox.shutdown(wait=False)
     L.evaluate(GUARD_EVM | {r.get("walletAddress") for r in recs.rows.values()} | {(r.get("creatorAddress") or "").lower() for r in recs.rows.values()})
     try:
         L.save()
@@ -1607,7 +1857,7 @@ def main():
         C.save()
     except Exception as e:
         emit(f"[cache] save failed: {e}")
-    emit(f"[done] {len(addrs)} token(s) in {time.time() - T0:.1f}s; fee-split sync {FS.secs}s; learned this scan: {len(L.new)}; requests: "
+    emit(f"[done] {len(addrs)} token(s) in {time.time() - T0:.1f}s; fee-split sync {FS.secs}s; beneficiary sync {"not run" if UB.secs is None else f"{UB.secs}s"}; learned this scan: {len(L.new)}; requests: "
          + ", ".join(f"{k} {v}" for k, v in sorted(STATS.items())))
 
 
